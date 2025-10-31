@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Engine RFID Dashboard</title>
+<script src="https://unpkg.com/htmx.org"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+
+<style>
+body { background:#0f172a; }
+.modal-bg { background: rgba(0,0,0,0.6); }
+.filter-active { border-bottom: 2px solid #22c55e; font-weight:700; }
+</style>
+
+<script>
+let sortField="last", sortDir="desc", filterMode="active";
+let searchTerm = ""; // persist input
+
+function refreshTable(){
+  htmx.ajax("GET",
+    `/fragment_table?sort=${sortField}&dir=${sortDir}&q=${encodeURIComponent(searchTerm)}&filter=${filterMode}`,
+    { target:"#live_table", swap:"innerHTML" }
+  );
+}
+
+function refreshGantt(){
+  htmx.ajax("GET", `/gantt_svg?filter=${filterMode}`, { target:"#gantt_area", swap:"innerHTML" });
+}
+
+window.onload = () => { refreshTable(); refreshGantt(); };
+setInterval(refreshTable, 2000);
+setInterval(refreshGantt, 6000);
+
+function highlightFilters(){
+  document.querySelectorAll(".filter-btn").forEach(btn=>{
+    btn.classList.remove("filter-active");
+    if(btn.dataset.f===filterMode) btn.classList.add("filter-active");
+  });
+}
+
+function setFilter(v){
+  filterMode=v; highlightFilters();
+  refreshTable(); refreshGantt();
+}
+
+function setSearch(v){
+  searchTerm=v;
+  refreshTable();
+}
+
+function setSort(f){
+  if(sortField===f) sortDir = (sortDir==="asc") ? "desc" : "asc";
+  else { sortField=f; sortDir="asc"; }
+  refreshTable();
+}
+
+// modals
+function openRename(id,name){
+  rename_id.value=id; rename_input.value=name;
+  rename_modal.classList.remove("hidden");
+}
+
+function openDelete(id,name){
+  delete_id.value=id; delete_name.textContent=name;
+  delete_modal.classList.remove("hidden");
+}
+
+function openTimeline(id,name){
+  timeline_title.textContent=name;
+  htmx.ajax("GET", `/engine_history?id=${id}`, { target:"#timeline_body", swap:"innerHTML" });
+  timeline_modal.classList.remove("hidden");
+}
+
+function closeModals(){
+  rename_modal.classList.add("hidden");
+  delete_modal.classList.add("hidden");
+  timeline_modal.classList.add("hidden");
+}
+
+async function saveName(){
+  const fd=new FormData();
+  fd.append("id",rename_id.value);
+  fd.append("newname",rename_input.value);
+  await fetch("/rename_engine",{method:"POST", body:fd});
+  closeModals(); refreshTable(); refreshGantt();
+}
+
+async function doDelete(){
+  const fd=new FormData();
+  fd.append("id",delete_id.value);
+  await fetch("/delete_engine",{method:"POST", body:fd});
+  closeModals(); refreshTable(); refreshGantt();
+}
+
+function exportCSV(){ window.location='/export_csv'; }
+function exportTimelineCSV(){ window.location='/export_timeline_csv'; }
+</script>
+</head>
+
+<body class="text-gray-200 p-6">
+
+<h1 class="text-3xl font-bold text-green-400 mb-4">Engine RFID System</h1>
+
+<!-- Filters -->
+<div class="flex flex-wrap gap-3 mb-4 text-sm">
+  <button data-f="active"    class="filter-btn px-3 py-1 rounded bg-slate-700" onclick="setFilter('active')">Active</button>
+  <button data-f="all"       class="filter-btn px-3 py-1 rounded bg-slate-700" onclick="setFilter('all')">All</button>
+  <button data-f="completed" class="filter-btn px-3 py-1 rounded bg-slate-700" onclick="setFilter('completed')">Completed</button>
+  <button data-f="Station1"  class="filter-btn px-3 py-1 rounded bg-blue-500" onclick="setFilter('Station1')">Station1</button>
+  <button data-f="Station2"  class="filter-btn px-3 py-1 rounded bg-green-500" onclick="setFilter('Station2')">Station2</button>
+  <button data-f="Station3"  class="filter-btn px-3 py-1 rounded bg-yellow-500 text-black" onclick="setFilter('Station3')">Station3</button>
+</div>
+
+<script>highlightFilters();</script>
+
+<!-- Export & Search -->
+<div class="flex flex-col gap-3 md:flex-row md:justify-between mb-3">
+  <div class="flex gap-2">
+    <button onclick="exportCSV()" class="bg-emerald-500 text-black px-3 py-2 rounded">Export CSV</button>
+    <button onclick="exportTimelineCSV()" class="bg-blue-400 text-black px-3 py-2 rounded">Export Timelines</button>
+  </div>
+  <input class="p-2 rounded bg-slate-700 text-white w-full md:w-96"
+         placeholder="Search engine/EPC..."
+         oninput="setSearch(this.value)">
+</div>
+
+<!-- Gantt -->
+<div class="mb-4 bg-slate-800 rounded p-3 overflow-x-auto">
+  <div id="gantt_area">Loading Gantt…</div>
+</div>
+
+<!-- Table -->
+<div id="live_table" class="overflow-x-auto text-sm">Loading table…</div>
+
+<!-- Rename Modal -->
+<div id="rename_modal" class="hidden fixed inset-0 modal-bg flex items-center justify-center">
+<div class="bg-slate-800 p-6 rounded w-96">
+  <h3 class="text-xl font-bold mb-3 text-blue-300">Rename Engine</h3>
+  <input id="rename_id" type="hidden">
+  <input id="rename_input" class="w-full mb-3 p-2 rounded bg-slate-700 text-white">
+  <div class="flex justify-end gap-2">
+    <button onclick="closeModals()" class="bg-gray-500 px-3 py-1 rounded">Cancel</button>
+    <button onclick="saveName()" class="bg-emerald-500 text-black px-3 py-1 rounded">Save</button>
+  </div>
+</div>
+</div>
+
+<!-- Delete Modal -->
+<div id="delete_modal" class="hidden fixed inset-0 modal-bg flex items-center justify-center">
+<div class="bg-slate-800 p-6 rounded w-96">
+  <h3 class="text-xl font-bold mb-3 text-red-400">Delete Engine?</h3>
+  <input id="delete_id" type="hidden">
+  <p class="mb-3">Remove <span id="delete_name" class="font-bold"></span> and its history?</p>
+  <div class="flex justify-end gap-2">
+    <button onclick="closeModals()" class="bg-gray-500 px-3 py-1 rounded">Cancel</button>
+    <button onclick="doDelete()" class="bg-red-600 px-3 py-1 rounded">Delete</button>
+  </div>
+</div>
+</div>
+
+<!-- Timeline Modal -->
+<div id="timeline_modal" class="hidden fixed inset-0 modal-bg flex items-center justify-center">
+<div class="bg-slate-800 p-6 rounded w-[720px] max-h-[80vh] overflow-auto">
+  <div class="flex justify-between mb-3">
+    <h3 id="timeline_title" class="text-lg font-bold text-blue-300">Timeline</h3>
+    <button onclick="closeModals()" class="bg-gray-500 px-3 py-1 rounded">Close</button>
+  </div>
+  <div id="timeline_body">Loading…</div>
+</div>
+</div>
+
+</body>
+</html>
